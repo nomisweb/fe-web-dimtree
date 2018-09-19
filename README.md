@@ -1,5 +1,5 @@
-DimTree
--------
+Dimension Tree
+--------------
 
 Simple web page that interrogates the Nomis API for a specific dataset and dimension and presents results as a tree hierarchy.
 
