@@ -1,0 +1,10 @@
+# Skip binary and temporary files.
+[Bb]in/
+[Oo]bj/
+
+# Skip install directories that could contain temporary data.
+[Ii]nstall/nms/logs/
+
+# Ignore Mac specific files.
+.DS_Store
+
