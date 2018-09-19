@@ -1,0 +1,220 @@
+<html>
+   <head>
+      <title>Dimension Tree - Nomis API</title>
+      <link rel="stylesheet" href="https://www.nomisweb.co.uk/css/nomis.css" type="text/css" />
+      <link rel="stylesheet" href="https://www.nomisweb.co.uk/css/ui.css" type="text/css" />
+      <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.3.1/jquery.min.js"></script>
+      <script src="https://www.nomisweb.co.uk/js/ui.js"></script>
+      <style>
+      .nodeTitle {
+         display: inline-block;
+         color: #338833;
+      }
+
+      .nodeComment {
+         display: inline-block;
+         color: #7b7d7b;
+         margin-left: 1em;
+         padding: 0 0.5em 0 0.5em;
+         font-weight: normal;
+      }
+
+      .type {
+         color: #333;
+      }
+
+      .nodeEnd {
+         background: #f3f3f3;
+         padding: 0.5em;
+         color: #666;
+         font-style: italic;
+         width: 15em;
+      }
+
+      .dimName {
+         padding: 0 0.5em;
+      }
+
+      #dimchoices {
+         background: #e3d6db;
+         margin-bottom: 1em;
+         padding: 1em;
+         display: none;
+      }
+      
+      main {
+         padding: 1em;
+      }
+      </style>
+   </head>
+<body>
+   <main role="main">
+   <h1>Nomis API - Dimension tree</h1>
+   <p>Explore any dimension of a specific dataset using the Nomis API. This is intended as a discovery
+      tool, serving as a basic utility/example for use by developers working with the Nomis API.
+      You cannot select or download data from here.</p>
+   <p>To use this app, enter the Dataset ID and Dimension ID then click 'Show tree'.
+      If you don't know the dimension ID, enter the Dataset ID then click '?' to get a list of dimensions.
+   </p>
+   <div id="controls"></div>
+   <div id="tree"></div>
+   <script>
+      var dsid = null;
+      var dimensionid = null;
+      var apiurl = 'https://www.nomisweb.co.uk/api/v01/dataset/';
+
+      function getApiUrl(code) {
+         if(code == null) code = '';
+         else code = code.toString();
+
+         if(code.length > 0) code = '/' + code;
+
+         return apiurl + dsid + '/' + dimensionid + code + '.def.sdmx.json';
+      }
+
+      function node(title, code) {
+         var t = title;
+         var c = code;
+
+         return { 
+            autoExpand: false,
+            content: t,
+            children: createBranchFunc(c)
+         };
+      }
+
+      function createNode(code) {
+         var title = code.description.value;
+         var keyval = code.value;
+         var comment = 'Id: ' + keyval;
+         var isAbstract = false;
+
+         var div = document.createElement('div');
+         div.className = 'nodeTitle';
+
+         if(code.annotations && code.annotations.annotation) {
+            var annots = code.annotations.annotation;
+
+            for(var i = 0; i < annots.length; i++) {
+               var a = annots[i];
+               if(a.annotationtitle == 'ChildCount') {
+                  var cc = a.annotationtext;
+                  if(cc > 1) comment += ', Children: ' + cc;
+               }
+               else if(a.annotationtitle == 'IsAbstractCode') isAbstract = (a.annotationtext == 'True')? true : false;
+               else if(a.annotationtitle == 'TypeCode') comment += ', Type: ' + a.annotationtext;
+               else if(a.annotationtitle == 'GeogCode') comment += ', GSS/Mnemonic: ' + a.annotationtext;
+            }
+         }
+
+         div.appendChild(document.createTextNode(title));
+
+         if(comment.length > 0) {
+            var comdiv = document.createElement('div');
+            comdiv.className = 'nodeComment';
+            comdiv.appendChild(document.createTextNode(comment));
+            div.appendChild(comdiv);
+         }
+
+         if(isAbstract) $(div).addClass('type');
+
+         return node(div, keyval);
+      }
+
+      function createEndNode() {
+         var div = document.createElement('div');
+         div.className = 'nodeEnd';
+         div.appendChild(document.createTextNode('This code has no children'));
+
+         return { content: div };
+      }
+
+      function createBranchFunc(code) {
+         var ckv = (code != null)? code.toString() : '';
+
+         return function(callback) {
+            var c = callback;
+            
+            $.getJSON(getApiUrl(code), function(data) {
+               if(!data.structure) window.alert('Error getting structure, check the Dataset ID you entered.');
+               else if(!data.structure.codelists || !data.structure.codelists.codelist) window.alert('Error getting dimension, check the Dimension ID you entered.');
+               else {
+                  var codes = data.structure.codelists.codelist[0].code;
+
+                  var a = new Array();
+
+                  for(var i = 0; i < codes.length; i++) {
+                     if(codes[i].value.toString() != ckv) a.push(createNode(codes[i]));
+                  }
+
+                  // Bottom of hierarchy?
+                  if(a.length == 0) {
+                     a.push(createEndNode());
+                  }
+                  c(a); // Callback with list of nodes
+               }
+            });
+         }
+      }
+                  
+      $(function() {
+         var controls = document.getElementById('controls');
+         controls.appendChild(ui.inputsearch({ id: 'in_dsid', placeholder: 'Dataset ID (e.g. NM_1_1)' }));
+         controls.appendChild(ui.button({ label: '?', classname: 'neutral', onclick: getDimensionChoices }));
+         controls.appendChild(ui.inputsearch({ id: 'in_dimensionid', placeholder: 'Dimension ID (e.g. geography)' }));
+         controls.appendChild(ui.button({ label: 'Show tree', classname: 'positive', onclick: go }));
+         controls.appendChild(ui.element({ tagname: 'div', id: 'dimchoices' }));
+      });
+
+      function getDimensionChoices() {
+         dsid = document.getElementById('in_dsid').value;
+         if(dsid.length == 0){ window.alert('You must specify a dataset ID'); return; }
+         
+         var dimchoices = document.getElementById('dimchoices');
+
+         clearTree();
+         dimchoices.innerHTML = '';
+
+         $.getJSON(apiurl + dsid + '.def.sdmx.json', function(data) {
+            if(!data.structure || !data.structure.keyfamilies || !data.structure.keyfamilies.keyfamily) window.alert('Error getting structure, check the Dataset ID you entered.');
+            else {
+               var kf = data.structure.keyfamilies.keyfamily[0];
+               dimchoices.appendChild(ui.element({ tagname: 'h2', content: kf.name.value }))
+               dimchoices.setAttribute('style', 'display: block');
+
+               var dims = kf.components.dimension;
+
+               for(var i = 0; i < dims.length; i++) {
+                  dimchoices.append(ui.alink({ classname: 'dimName', href: 'javascript: document.getElementById("in_dimensionid").value="' + dims[i].conceptref + '"; go();', label: dims[i].conceptref }));
+               }
+            }
+         });
+      }
+
+      function clearTree() {
+         var t = document.getElementById('tree');
+         t.innerHTML = ''; // Remove any previous content.
+      }
+
+      function go() {
+         var t = document.getElementById('tree');
+         clearTree();
+
+         dsid = document.getElementById('in_dsid').value;
+         dimensionid = document.getElementById('in_dimensionid').value;
+
+         if(dsid.length == 0){ window.alert('You must specify a dataset ID'); return; }
+         if(dimensionid.length == 0){ window.alert('You must specify a dimension ID'); return; }
+
+         $('#tree').append(ui.tree({
+            classname: 'tree',
+            children: [ {
+               content: document.createTextNode('Tree of ' + dimensionid + ' for ' + dsid),
+               children: createBranchFunc()
+            }]
+         }));
+      };
+   </script>
+   </main>
+</body>
+</html>
